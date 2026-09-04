@@ -22,6 +22,16 @@ It does not forward browser cookies or authorization headers, does not expose lo
 1. Choose customer or provider.
 2. Verify a phone number by OTP.
 3. Enter account details and an optional referral code.
-4. Open the matching Skilld mobile app and sign in there.
+4. Copy the new account's referral link, built from the current web-app URL, then open the matching Skilld mobile app and sign in there.
 
 Provider registration also collects a CNIC / ID number. Referral links prefill the code but the backend remains the source of truth for referral eligibility.
+
+## Docker and AWS EC2
+
+The production container runs Next.js standalone behind Nginx on HTTP port 80,
+with browser HTTPS handled by Cloudflare. See [the EC2 deployment guide](docs/ec2-deployment.md)
+for instance setup, Docker installation, Cloudflare settings, environment variables,
+startup commands, and a local Docker check.
+
+Docker uses `npm run build:docker`; the existing Vinext development and build
+commands are preserved. Local environment files are excluded from the image.

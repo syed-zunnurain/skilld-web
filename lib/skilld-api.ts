@@ -22,6 +22,11 @@ export type RegistrationPayload = {
   id_number?: string;
 };
 
+export type RegistrationResult = {
+  referral_code: string | null;
+  share_url: string | null;
+};
+
 export class SkilldApiError extends Error {
   constructor(
     message: string,
@@ -108,5 +113,5 @@ export function verifyOtp(phone: string, otp: string) {
 
 export function registerAccount(accountType: AccountType, payload: RegistrationPayload) {
   const route = accountType === 'customer' ? 'auth/customers/register' : 'auth/providers/register';
-  return postSkilld<Record<string, unknown>>(route, payload);
+  return postSkilld<RegistrationResult>(route, payload);
 }

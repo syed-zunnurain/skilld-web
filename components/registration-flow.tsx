@@ -6,6 +6,7 @@ import {
   BriefcaseBusiness,
   Check,
   CheckCircle2,
+  Copy,
   Gift,
   LoaderCircle,
   LockKeyhole,
@@ -43,6 +44,7 @@ type FieldName =
   | 'idNumber'
   | 'referralCode';
 type FormErrors = Partial<Record<FieldName, string>>;
+type CopyStatus = 'idle' | 'copied' | 'error';
 
 const REFERRAL_PATTERN = /^[A-Z0-9]{1,27}-[A-HJ-NP-Z2-9]{4}$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -108,6 +110,14 @@ function errorsFromApi(error: SkilldApiError): FormErrors {
   }, {});
 }
 
+function referralLinkFromRegistration(result: { referral_code: string | null }) {
+  const referralCode = result.referral_code?.trim();
+
+  return referralCode
+    ? new URL(`/r/${encodeURIComponent(referralCode)}`, window.location.origin).toString()
+    : '';
+}
+
 export function RegistrationFlow({ initialReferralCode = '' }: { initialReferralCode?: string }) {
   const normalizedInitialReferral = normalizeReferral(initialReferralCode);
   const referralFromValidLink = REFERRAL_PATTERN.test(normalizedInitialReferral);
@@ -126,6 +136,8 @@ export function RegistrationFlow({ initialReferralCode = '' }: { initialReferral
   const [requestError, setRequestError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [retryAfter, setRetryAfter] = useState(0);
+  const [newReferralLink, setNewReferralLink] = useState('');
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle');
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   const role = ROLE_CONTENT[accountType];
@@ -362,7 +374,7 @@ export function RegistrationFlow({ initialReferralCode = '' }: { initialReferral
     setIsSubmitting(true);
 
     try {
-      await registerAccount(accountType, {
+      const result = await registerAccount(accountType, {
         name: name.trim(),
         phone,
         email: email.trim() || null,
@@ -370,6 +382,8 @@ export function RegistrationFlow({ initialReferralCode = '' }: { initialReferral
         ...(accountType === 'provider' ? { id_number: idNumber.trim() } : {}),
         ...(normalizedCode ? { referral_code: normalizedCode } : {}),
       });
+      setNewReferralLink(referralLinkFromRegistration(result));
+      setCopyStatus('idle');
       setPassword('');
       setPasswordConfirmation('');
       moveTo('success');
@@ -377,6 +391,22 @@ export function RegistrationFlow({ initialReferralCode = '' }: { initialReferral
       handleApiError(error, undefined, ['phone']);
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function copyReferralLink() {
+    if (!newReferralLink) return;
+
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('Clipboard API is unavailable.');
+      }
+
+      await navigator.clipboard.writeText(newReferralLink);
+      setCopyStatus('copied');
+    } catch {
+      setCopyStatus('error');
+      document.getElementById('new-referral-link')?.focus();
     }
   }
 
@@ -391,6 +421,8 @@ export function RegistrationFlow({ initialReferralCode = '' }: { initialReferral
     setIdNumber('');
     setReferralCode(normalizedInitialReferral);
     setRetryAfter(0);
+    setNewReferralLink('');
+    setCopyStatus('idle');
     clearFeedback();
   }
 
@@ -736,6 +768,9 @@ export function RegistrationFlow({ initialReferralCode = '' }: { initialReferral
                       ? 'Continue your provider setup and account review in the mobile app. No web session was created.'
                       : 'Book and manage your services in the mobile app. No web session was created.'
                   }
+                  referralLink={newReferralLink}
+                  copyStatus={copyStatus}
+                  onCopy={() => void copyReferralLink()}
                   actionLabel="Register another account"
                   onAction={resetFlow}
                 />
@@ -1030,6 +1065,9 @@ function CompletionStep({
   description,
   phone,
   note,
+  referralLink,
+  copyStatus = 'idle',
+  onCopy,
   actionLabel,
   onAction,
 }: {
@@ -1039,6 +1077,9 @@ function CompletionStep({
   description: React.ReactNode;
   phone?: string;
   note: string;
+  referralLink?: string;
+  copyStatus?: CopyStatus;
+  onCopy?: () => void;
   actionLabel: string;
   onAction: () => void;
 }) {
@@ -1058,6 +1099,56 @@ function CompletionStep({
       {phone && (
         <div className="mx-auto mt-5 flex w-fit items-center gap-2 rounded-full bg-primary-soft px-4 py-2 text-sm font-bold text-primary">
           <Phone className="size-4" /> +{phone}
+        </div>
+      )}
+      {referralLink && onCopy && (
+        <div className="mt-6 rounded-2xl border border-primary/20 bg-primary-soft/70 p-4 text-left">
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-white text-primary shadow-sm">
+              <Gift className="size-4.5" />
+            </span>
+            <div>
+              <p className="text-sm font-bold">Your referral link</p>
+              <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                Share it with a customer or provider joining Skilld.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <Input
+              id="new-referral-link"
+              value={referralLink}
+              readOnly
+              aria-label="Your referral link"
+              onFocus={(event) => event.currentTarget.select()}
+              className="form-input h-11 bg-white px-3 text-sm"
+            />
+            <Button
+              type="button"
+              onClick={onCopy}
+              className="h-11 rounded-xl px-4 font-bold"
+            >
+              {copyStatus === 'copied' ? (
+                <>
+                  <Check data-icon="inline-start" /> Copied
+                </>
+              ) : (
+                <>
+                  <Copy data-icon="inline-start" /> Copy link
+                </>
+              )}
+            </Button>
+          </div>
+          <output
+            className={cn(
+              'mt-2 block min-h-5 text-xs',
+              copyStatus === 'error' ? 'text-destructive' : 'text-primary',
+            )}
+            aria-live="polite"
+          >
+            {copyStatus === 'copied' && 'Referral link copied.'}
+            {copyStatus === 'error' && 'Select the link and copy it manually.'}
+          </output>
         </div>
       )}
       <div className="mt-7 rounded-2xl border bg-card p-4 text-left shadow-sm">

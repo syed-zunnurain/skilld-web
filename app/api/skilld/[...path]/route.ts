@@ -9,7 +9,7 @@ const MAX_REQUEST_BYTES = 32 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 
 type RouteContext = {
-  params: Promise<{ path?: string[] }> | { path?: string[] };
+  params: Promise<{ path: string[] }>;
 };
 
 type BodyResult =
@@ -90,7 +90,7 @@ async function readLimitedJson(request: Request): Promise<BodyResult> {
 }
 
 export async function POST(request: Request, context: RouteContext) {
-  const { path: segments = [] } = await context.params;
+  const { path: segments } = await context.params;
   const path = segments.join('/');
 
   if (!ALLOWED_PATHS.has(path)) {
@@ -102,7 +102,22 @@ export async function POST(request: Request, context: RouteContext) {
     return jsonError('Content-Type must be application/json.', 415);
   }
 
-  const requestOrigin = new URL(request.url).origin;
+  // Next's request URL may contain the internal container hostname behind TLS.
+  // Use the configured public origin instead of trusting forwarded host headers.
+  let requestOrigin = new URL(request.url).origin;
+  const configuredOrigin = process.env.SKILLD_WEB_ORIGIN?.trim();
+
+  if (configuredOrigin) {
+    try {
+      const publicUrl = new URL(configuredOrigin);
+      if (!['http:', 'https:'].includes(publicUrl.protocol)) {
+        return jsonError('Registration is not configured yet.', 503);
+      }
+      requestOrigin = publicUrl.origin;
+    } catch {
+      return jsonError('Registration is not configured yet.', 503);
+    }
+  }
   const origin = request.headers.get('origin');
   const fetchSite = request.headers.get('sec-fetch-site');
 
@@ -137,7 +152,9 @@ export async function POST(request: Request, context: RouteContext) {
       Accept: 'application/json',
       'Content-Type': 'application/json',
     });
-    const connectingIp = request.headers.get('cf-connecting-ip');
+    const connectingIp = process.env.SKILLD_TRUST_PROXY === 'true'
+      ? request.headers.get('x-skilld-client-ip')
+      : request.headers.get('cf-connecting-ip');
 
     if (connectingIp) {
       upstreamHeaders.set('X-Forwarded-For', connectingIp);
