@@ -8,9 +8,19 @@ Cloudflare **Flexible** mode leaves the Cloudflare-to-EC2 hop unencrypted, inclu
 
 ## 1. Prepare an EC2 instance
 
+In the AWS Console, choose your region, then open **EC2 → Instances → Launch instances**. Name the instance `skilld-web`.
+
 Use Ubuntu Server **24.04 LTS, x86-64**. A `t3.medium` with 4 GiB RAM and 30 GiB gp3 storage is a practical starting point for building the image on the instance; it is not a guaranteed minimum. Smaller instances may run out of memory during the Next.js build. [AWS T3 specifications](https://aws.amazon.com/ec2/instance-types/t3/)
 
-Attach an Elastic IP and use a public subnet with an Internet Gateway route. An Elastic IP keeps the DNS target stable across stop/start; allocated public IPv4 addresses incur AWS charges. [AWS networking](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html), [Elastic IPs](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/elastic-ip-addresses-eip.html)
+Under **Key pair (login) → Create new key pair**, use:
+
+- Name: `skilld-web-ec2`
+- Type: **RSA**
+- Private-key format: **.pem**
+
+Download `skilld-web-ec2.pem` to your Mac. Keep it private; AWS provides the download only once. This is your Mac-to-EC2 login key, separate from the EC2-to-GitHub deploy key created in step 4. If using an existing key pair, select it and use its existing private key instead. [AWS key-pair creation](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/create-key-pairs.html)
+
+Under **Network settings**, choose a public subnet with an Internet Gateway route and enable auto-assignment of a public IP. [AWS public-subnet networking](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Internet_Gateway.html)
 
 Configure the security group:
 
@@ -22,6 +32,10 @@ Configure the security group:
 | TCP 443 | No inbound rule needed for this stack | TLS terminates at Cloudflare |
 
 Cloudflare ranges are included in `deploy/nginx/cloudflare-real-ip.conf`; use the same current ranges for the EC2 TCP 80 rules. Add IPv6 origin rules only if you configure IPv6. Keep outbound access available for Docker/package downloads, DNS, and the backend API. [Cloudflare origin IP allowlisting](https://developers.cloudflare.com/fundamentals/concepts/cloudflare-ip-addresses/), [AWS security-group rules](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/security-group-rules-reference.html)
+
+Click **Launch instance** and wait for its status checks to pass.
+
+For a stable address, open **EC2 → Network & Security → Elastic IPs → Allocate Elastic IP address**. Select the allocated address, then **Actions → Associate Elastic IP address**, choose the `skilld-web` instance, and associate it. Use this Elastic IP for SSH and Cloudflare DNS. Allocated public IPv4 addresses incur AWS charges. [AWS Elastic IPs](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/elastic-ip-addresses-eip.html)
 
 This Compose stack owns port 80. If another Nginx or backend already uses port 80 on the instance, use a separate instance or integrate the web upstream into that existing proxy. Do not start two proxies on the same host port.
 
@@ -39,14 +53,18 @@ Do not add an HTTP-to-HTTPS redirect in Nginx: Cloudflare reaches this origin ov
 
 ## 3. Install Docker and Compose on EC2
 
-Connect from your computer:
+Run these commands in **your Mac terminal**, assuming the new key is in Downloads. Adjust the source path if you used an existing key:
 
 ```bash
-chmod 400 /path/to/key.pem
-ssh -i /path/to/key.pem ubuntu@YOUR_ELASTIC_IP
+mkdir -p /Users/syed/.ssh
+cp /Users/syed/Downloads/skilld-web-ec2.pem /Users/syed/.ssh/skilld-web-ec2.pem
+chmod 400 /Users/syed/.ssh/skilld-web-ec2.pem
+ssh -i /Users/syed/.ssh/skilld-web-ec2.pem ubuntu@YOUR_ELASTIC_IP
 ```
 
-Run these commands on the Ubuntu 24.04 **x86-64** instance:
+Replace `YOUR_ELASTIC_IP` with the allocated address. Ubuntu's remote username is `ubuntu`. Use the IP for SSH, not the Cloudflare-proxied web hostname. On the first connection, compare the server fingerprint with the EC2 system log before accepting it. [AWS SSH connection instructions](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-linux-inst-ssh.html)
+
+You are now in an **EC2 terminal**. Run the following on the Ubuntu 24.04 **x86-64** instance:
 
 ```bash
 sudo apt-get update
@@ -67,22 +85,65 @@ EOF
 sudo apt-get update
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 sudo systemctl enable --now docker
+sudo docker --version
 sudo docker compose version
+sudo docker run --rm hello-world
 ```
 
 These use Docker's official apt repository. If using ARM/Graviton instead, select an ARM Ubuntu image and use `Architectures: arm64`. [Docker Ubuntu installation](https://docs.docker.com/engine/install/ubuntu/)
 
-## 4. Copy the updated project and configure it
+## 4. Clone from GitHub and configure it
 
-The repository/source you copy must include the new Docker files and updated lockfile. For a Git-hosted project, replace the placeholder URL:
+Keep the EC2 login `.pem` on your Mac. Create a separate repository deploy key on EC2 for GitHub access. Run the following as `ubuntu` in your SSH session, without `sudo` for SSH key or Git commands:
 
 ```bash
-git clone 'YOUR_SKILLD_WEB_REPOSITORY_URL' skilld-web
-cd skilld-web
+sudo apt-get update
+sudo apt-get install -y git openssh-client
+mkdir -p /home/ubuntu/.ssh
+chmod 700 /home/ubuntu/.ssh
+ssh-keygen -t ed25519 -C "skilld-web-ec2" -f /home/ubuntu/.ssh/skilld_web_github
+```
+
+For unattended pulls, press Enter twice at the passphrase prompts. If a key already exists at this path, reuse it rather than overwriting it.
+
+Display only the public key:
+
+```bash
+cat /home/ubuntu/.ssh/skilld_web_github.pub
+```
+
+In GitHub, open `syed-zunnurain/skilld-web` → **Settings → Deploy keys → Add deploy key**. Use the title `skilld-web-ec2`, paste the complete public-key line, and leave **Allow write access** unchecked. The private key stays on EC2. [GitHub deploy keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys)
+
+Test the key:
+
+```bash
+ssh -i /home/ubuntu/.ssh/skilld_web_github -o IdentitiesOnly=yes -T git@github.com
+```
+
+On first connection, verify the host fingerprint against [GitHub's published fingerprints](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints) before accepting it. A success message says authentication succeeded but GitHub does not provide shell access; SSH normally exits with code 1 in this case. [GitHub SSH connection test](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/testing-your-ssh-connection)
+
+Ensure the branch on GitHub includes the Docker files and updated lockfile. Clone into a new or empty directory, then save this repository's SSH-key selection for later pulls:
+
+```bash
+git -c core.sshCommand='ssh -i /home/ubuntu/.ssh/skilld_web_github -o IdentitiesOnly=yes' \
+  clone git@github.com:syed-zunnurain/skilld-web.git /home/ubuntu/skilld-web
+
+cd /home/ubuntu/skilld-web
+git config core.sshCommand 'ssh -i /home/ubuntu/.ssh/skilld_web_github -o IdentitiesOnly=yes'
+git remote -v
+```
+
+The clone tracks GitHub's default branch. If deployment uses a different branch, check out that existing branch before building. If the destination already contains an uploaded copy, use a separate empty directory or preserve it as a backup before cloning.
+
+Create the server environment file on the first deployment:
+
+```bash
 cp .env.docker.example .env.docker
 chmod 600 .env.docker
 nano .env.docker
 ```
+
+In Nano, save with **Ctrl+O**, **Enter**, then exit with **Ctrl+X** after entering the values below.
 
 Set:
 
@@ -141,12 +202,22 @@ The health endpoint returns `{"status":"ok"}`. It checks the web server, not bac
 
 ## 6. Updates and troubleshooting
 
-After retrieving your reviewed source update:
+After pushing your reviewed update to GitHub, run on EC2:
+
+```bash
+cd /home/ubuntu/skilld-web
+git status --short
+git pull --ff-only
+```
+
+Only after the pull succeeds, rebuild and restart:
 
 ```bash
 sudo docker compose --env-file .env.docker up -d --build --wait
 sudo docker compose --env-file .env.docker logs --tail=100 web nginx
 ```
+
+If the pull fails because of local edits or diverged history, resolve that before rebuilding; do not reset away server changes. Keep deployment configuration in the ignored `.env.docker` file, which normal pulls preserve. Do not copy the example over it during updates.
 
 If only `SKILLD_API_URL` changes, running `up -d --wait` is enough. If `SITE_URL` changes, include `--build`. Nginx re-resolves the web container through Docker DNS after recreation.
 
