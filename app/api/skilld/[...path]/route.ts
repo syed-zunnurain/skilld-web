@@ -1,10 +1,7 @@
-const ALLOWED_PATHS = new Set([
-  'auth/check',
-  'auth/otp/verify',
-  'auth/customers/register',
-  'auth/providers/register',
-]);
+import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
 
+const SESSION_COOKIE = 'skilld_agent_session';
 const MAX_REQUEST_BYTES = 32 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -46,7 +43,11 @@ function configuredApiBase(): string | null {
 
 async function readLimitedJson(request: Request): Promise<BodyResult> {
   if (!request.body) {
-    return { ok: false, status: 400, message: 'A JSON request body is required.' };
+    return {
+      ok: false,
+      status: 400,
+      message: 'A JSON request body is required.',
+    };
   }
 
   const reader = request.body.getReader();
@@ -61,13 +62,21 @@ async function readLimitedJson(request: Request): Promise<BodyResult> {
       totalBytes += value.byteLength;
       if (totalBytes > MAX_REQUEST_BYTES) {
         await reader.cancel();
-        return { ok: false, status: 413, message: 'Request is too large.' };
+        return {
+          ok: false,
+          status: 413,
+          message: 'Request is too large.',
+        };
       }
 
       chunks.push(value);
     }
   } catch {
-    return { ok: false, status: 400, message: 'The request body could not be read.' };
+    return {
+      ok: false,
+      status: 400,
+      message: 'The request body could not be read.',
+    };
   }
 
   const bytes = new Uint8Array(totalBytes);
@@ -79,112 +88,205 @@ async function readLimitedJson(request: Request): Promise<BodyResult> {
 
   try {
     const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      return { ok: false, status: 400, message: 'A JSON object is required.' };
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return {
+        ok: false,
+        status: 400,
+        message: 'A JSON object is required.',
+      };
     }
 
     return { ok: true, body: JSON.stringify(parsed) };
   } catch {
-    return { ok: false, status: 400, message: 'The request body is not valid JSON.' };
+    return {
+      ok: false,
+      status: 400,
+      message: 'The request body is not valid JSON.',
+    };
   }
 }
 
-export async function POST(request: Request, context: RouteContext) {
+async function proxy(request: Request, context: RouteContext) {
   const { path: segments } = await context.params;
   const path = segments.join('/');
-
-  if (!ALLOWED_PATHS.has(path)) {
+  const allowed =
+    request.method === 'GET'
+      ? [
+          'agent/profile',
+          'agent/referrals',
+          'agent/withdrawals',
+          'agent/wallet/transactions',
+        ].includes(path) || /^agent\/withdrawals\/[0-9]+\/proof$/.test(path)
+      : request.method === 'POST'
+        ? ['auth/login', 'auth/logout', 'agent/withdrawals'].includes(path)
+        : request.method === 'PUT' && path === 'agent/password';
+  if (!allowed) {
     return jsonError('Not found.', 404);
   }
 
-  const contentType = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
-  if (contentType !== 'application/json') {
-    return jsonError('Content-Type must be application/json.', 415);
-  }
+  if (request.method !== 'GET') {
+    let expectedOrigin = new URL(request.url).origin;
 
-  // Next's request URL may contain the internal container hostname behind TLS.
-  // Use the configured public origin instead of trusting forwarded host headers.
-  let requestOrigin = new URL(request.url).origin;
-  const configuredOrigin = process.env.SKILLD_WEB_ORIGIN?.trim();
-
-  if (configuredOrigin) {
     try {
-      const publicUrl = new URL(configuredOrigin);
-      if (!['http:', 'https:'].includes(publicUrl.protocol)) {
-        return jsonError('Registration is not configured yet.', 503);
+      if (process.env.SKILLD_WEB_ORIGIN) {
+        expectedOrigin = new URL(process.env.SKILLD_WEB_ORIGIN).origin;
       }
-      requestOrigin = publicUrl.origin;
     } catch {
-      return jsonError('Registration is not configured yet.', 503);
+      return jsonError('The agent portal is not configured yet.', 503);
     }
-  }
-  const origin = request.headers.get('origin');
-  const fetchSite = request.headers.get('sec-fetch-site');
 
-  if (origin && origin !== requestOrigin) {
-    return jsonError('Cross-origin requests are not allowed.', 403);
-  }
+    const origin = request.headers.get('origin');
+    const site = request.headers.get('sec-fetch-site');
 
-  if (fetchSite && fetchSite !== 'same-origin') {
-    return jsonError('Cross-origin requests are not allowed.', 403);
+    if (
+      (origin && origin !== expectedOrigin) ||
+      (site && site !== 'same-origin')
+    ) {
+      return jsonError('Cross-origin requests are not allowed.', 403);
+    }
+
+    if (
+      request.headers.get('content-type')?.split(';')[0] !== 'application/json'
+    ) {
+      return jsonError('A JSON request is required.', 415);
+    }
   }
 
   const apiBase = configuredApiBase();
+
   if (!apiBase) {
-    return jsonError('Registration is not configured yet.', 503);
+    return jsonError('The agent portal is not configured yet.', 503);
   }
 
-  const declaredLength = Number(request.headers.get('content-length') ?? 0);
-  if (declaredLength > MAX_REQUEST_BYTES) {
-    return jsonError('Request is too large.', 413);
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+
+  if (path !== 'auth/login' && !token) {
+    return jsonError('Please sign in.', 401);
   }
 
-  const bodyResult = await readLimitedJson(request);
-  if (!bodyResult.ok) {
-    return jsonError(bodyResult.message, bodyResult.status);
+  let body: string | undefined;
+
+  if (request.method !== 'GET') {
+    const result = await readLimitedJson(request);
+    if (!result.ok) {
+      return jsonError(result.message, result.status);
+    }
+
+    body = result.body;
+
+    if (path === 'auth/login') {
+      const credentials = JSON.parse(body);
+      body = JSON.stringify({
+        phone: credentials.phone,
+        password: credentials.password,
+        force: credentials.force === true,
+        user_type: 'agent',
+      });
+    }
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const headers = new Headers({
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  });
+
+  if (token && path !== 'auth/login') {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
 
   try {
-    const upstreamHeaders = new Headers({
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    });
-    const connectingIp = process.env.SKILLD_TRUST_PROXY === 'true'
-      ? request.headers.get('x-skilld-client-ip')
-      : request.headers.get('cf-connecting-ip');
+    const upstream = await fetch(
+      `${apiBase}/${path}${new URL(request.url).search}`,
+      {
+        method: request.method,
+        body,
+        headers,
+        cache: 'no-store',
+        redirect: 'manual',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      },
+    );
 
-    if (connectingIp) {
-      upstreamHeaders.set('X-Forwarded-For', connectingIp);
-    }
-
-    const upstream = await fetch(`${apiBase}/${path}`, {
-      method: 'POST',
-      headers: upstreamHeaders,
-      body: bodyResult.body,
-      cache: 'no-store',
-      redirect: 'manual',
-      signal: controller.signal,
-    });
     const responseHeaders = new Headers({
-      'Cache-Control': 'no-store',
-      'Content-Type': upstream.headers.get('content-type') ?? 'application/json',
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
     });
-    const retryAfter = upstream.headers.get('retry-after');
 
-    if (retryAfter) {
-      responseHeaders.set('Retry-After', retryAfter);
+    for (const name of ['content-type', 'content-disposition', 'retry-after']) {
+      const value = upstream.headers.get(name);
+      if (value) responseHeaders.set(name, value);
     }
 
-    return new Response(await upstream.arrayBuffer(), {
+    if (path === 'auth/login') {
+      const payload = (await upstream.json()) as {
+        success?: boolean;
+        message?: string;
+        errors?: Record<string, string[]>;
+        data?: { token?: string; role?: string; profile?: unknown };
+      };
+      if (
+        !upstream.ok ||
+        !payload.success ||
+        !payload.data?.token ||
+        payload.data.role !== 'agent'
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: payload.message ?? 'Unable to sign in.',
+            errors: payload.errors,
+          },
+          {
+            status: upstream.ok ? 502 : upstream.status,
+            headers: responseHeaders,
+          },
+        );
+      }
+
+      const response = NextResponse.json(
+        { success: true, data: payload.data.profile },
+        { headers: responseHeaders },
+      );
+      response.cookies.set(SESSION_COOKIE, payload.data.token, {
+        httpOnly: true,
+        secure:
+          new URL(request.url).protocol === 'https:' ||
+          process.env.SKILLD_WEB_ORIGIN?.startsWith('https:') === true,
+        sameSite: 'strict',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 3,
+      });
+
+      return response;
+    }
+
+    const response = new NextResponse(upstream.body, {
       status: upstream.status,
       headers: responseHeaders,
     });
+
+    if (path === 'auth/logout' || upstream.status === 401) {
+      response.cookies.set(SESSION_COOKIE, '', {
+        httpOnly: true,
+        sameSite: 'strict',
+        path: '/',
+        maxAge: 0,
+      });
+    }
+
+    return response;
   } catch {
-    return jsonError('Skilld is temporarily unavailable. Please try again.', 503);
-  } finally {
-    clearTimeout(timeout);
+    return jsonError(
+      'Skilld is temporarily unavailable. Please try again.',
+      503,
+    );
   }
 }
+
+export const GET = proxy;
+export const POST = proxy;
+export const PUT = proxy;

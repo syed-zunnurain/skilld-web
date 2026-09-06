@@ -1,5 +1,4 @@
-import { RegistrationFlow } from '@/components/registration-flow';
-
+import { AgentPortal } from '@/components/agent-portal';
 export default function Home() {
-  return <RegistrationFlow />;
+  return <AgentPortal />;
 }

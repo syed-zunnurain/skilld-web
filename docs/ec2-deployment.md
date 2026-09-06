@@ -1,10 +1,10 @@
 # Deploy Skilld Web on EC2
 
-This deployment runs Next.js in a non-root Node container behind Nginx on **HTTP port 80**. Cloudflare provides browser HTTPS. The registration UI and referral links keep using the public web hostname.
+This deployment runs Next.js in a non-root Node container behind Nginx on **HTTP port 80**. Cloudflare provides browser HTTPS. The agent portal and referral links keep using the public web hostname.
 
 Traffic flow: browser → HTTPS → Cloudflare → HTTP → Nginx → Next.js → HTTPS → Skilld API.
 
-Cloudflare **Flexible** mode leaves the Cloudflare-to-EC2 hop unencrypted, including registration payloads. This is the HTTP-origin setup requested; it is not end-to-end TLS. [Cloudflare Flexible documentation](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/flexible/)
+Cloudflare **Flexible** mode leaves the Cloudflare-to-EC2 hop unencrypted, including agent credentials and API payloads. This is the HTTP-origin setup requested; it is not end-to-end TLS. [Cloudflare Flexible documentation](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/flexible/)
 
 ## 1. Prepare an EC2 instance
 
@@ -47,7 +47,7 @@ Use a hostname such as `register.example.com`:
 2. Confirm that Cloudflare has an active edge certificate for this hostname.
 3. Under **Rules → Overview → Create rule → Configuration Rule**, match `http.host eq "register.example.com"` and set **SSL → Flexible**. Scope the rule to the web hostname so an existing backend API can retain Full (strict). Ensure a later rule does not override it.
 4. Redirect visitors to HTTPS at the Cloudflare edge. Use a hostname-scoped redirect if only this host should change, or **SSL/TLS → Edge Certificates → Always Use HTTPS** if the entire zone should redirect.
-5. Keep the default cache behavior; do not add a Cache Everything rule for registration/API routes. The API returns `Cache-Control: no-store`.
+5. Keep the default cache behavior; do not add a Cache Everything rule for portal/API routes. The API returns `Cache-Control: no-store`.
 
 Do not add an HTTP-to-HTTPS redirect in Nginx: Cloudflare reaches this origin over HTTP, and an origin redirect would loop. [Cloudflare configuration rules](https://developers.cloudflare.com/rules/configuration-rules/create-dashboard/), [SSL overrides](https://developers.cloudflare.com/rules/configuration-rules/settings/#ssl), [edge HTTPS redirects](https://developers.cloudflare.com/ssl/edge-certificates/encrypt-visitor-traffic/)
 
@@ -232,9 +232,9 @@ sudo docker compose --env-file .env.docker exec nginx nginx -t
 - **Cloudflare 521/522:** check the EC2 address, TCP 80 security-group rules, and Nginx container.
 - **Cloudflare 525/526:** this origin is HTTP-only; check the hostname's Flexible override.
 - **Redirect loop:** remove an origin-side HTTPS redirect; redirect at Cloudflare.
-- **Registration returns 403:** `SITE_URL` must exactly match the browser's origin (scheme, hostname, and port). Use the Cloudflare URL rather than the EC2 IP.
-- **Registration returns 503:** check `SKILLD_API_URL`, backend reachability, and a valid backend HTTPS certificate. Verify the backend is not protected by a browser-only Cloudflare challenge.
-- **Health works but registration returns 429:** verify backend trusted proxies/client-IP throttles.
+- **Agent API returns 403:** `SITE_URL` must exactly match the browser's origin (scheme, hostname, and port). Use the Cloudflare URL rather than the EC2 IP.
+- **Agent API returns 503:** check `SKILLD_API_URL`, backend reachability, and a valid backend HTTPS certificate. Verify the backend is not protected by a browser-only Cloudflare challenge.
+- **Health works but agent API returns 429:** verify backend trusted proxies/client-IP throttles.
 - **Build killed for memory:** increase build memory or build on a larger machine/CI runner. Images built on Apple Silicon must target `linux/amd64` for the x86-64 instance.
 - **Nginx/Cloudflare IP updates:** refresh `deploy/nginx/cloudflare-real-ip.conf` and the security-group allowlist from Cloudflare's [IPv4](https://www.cloudflare.com/ips-v4/) and [IPv6](https://www.cloudflare.com/ips-v6/) lists, then recreate Nginx with the commands above. A reload alone does not re-render its startup template.
 
