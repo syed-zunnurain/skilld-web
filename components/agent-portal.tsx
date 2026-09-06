@@ -1,11 +1,17 @@
 'use client';
 
+import { ArrowRight, LoaderCircle, LockKeyhole, Phone } from 'lucide-react';
 import { useCallback, useEffect, useState, type SubmitEvent } from 'react';
-import { AgentDashboard } from './agent-dashboard';
-import type { AgentProfile } from '@/lib/agent-types';
+
+import { AgentDashboard } from '@/components/agent-dashboard';
+import { SkilldBrand } from '@/components/skilld-brand';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { agentApi, AgentApiError } from '@/lib/agent-api';
+import type { AgentProfile } from '@/lib/agent-types';
 
 export function AgentPortal() {
   const [profile, setProfile] = useState<AgentProfile>();
@@ -81,8 +87,14 @@ export function AgentPortal() {
 
   if (checking) {
     return (
-      <main className="grid min-h-screen place-items-center">
-        <p>Opening your account…</p>
+      <main className="grid min-h-svh place-items-center px-5">
+        <div className="space-y-6">
+          <SkilldBrand />
+          <output className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+            Opening your account…
+          </output>
+        </div>
       </main>
     );
   }
@@ -94,61 +106,87 @@ export function AgentPortal() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
-      <section className="w-full max-w-md rounded-3xl border bg-white p-8 shadow-sm">
-        <p className="text-sm font-semibold text-primary">
-          Skilld · Agent portal
-        </p>
-        <h1 className="mt-6 text-3xl font-semibold">Welcome back</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Sign in with the phone number and password provided by your
-          administrator.
-        </p>
-        <form onSubmit={login} className="mt-8 space-y-5">
-          <label htmlFor="phone" className="block text-sm">
-            Phone number
-            <Input
-              id="phone"
-              className="mt-2"
-              type="tel"
-              autoComplete="username"
-              required
-              value={phone}
-              onChange={(e) => {
-                setPhone(e.target.value);
-                setForce(false);
-              }}
-            />
-          </label>
-          <label htmlFor="password" className="block text-sm">
-            Password
-            <Input
-              id="password"
-              className="mt-2"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
-          {error && (
-            <p role="alert" className="text-sm text-red-700">
-              {error}
+    <main className="flex min-h-svh items-center justify-center px-5 py-10 sm:py-16">
+      <div className="w-full max-w-md space-y-7">
+        <SkilldBrand />
+        <Card className="rounded-2xl py-7 sm:py-8">
+          <CardContent className="px-6 sm:px-8">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Welcome back
+            </h1>
+            <p className="mt-2 text-base leading-relaxed text-muted-foreground">
+              Sign in to track your referrals and manage your earnings.
             </p>
-          )}
-          <Button type="submit" className="w-full" disabled={busy}>
-            {busy
-              ? 'Signing in…'
-              : force
-                ? 'Sign in and end other session'
-                : 'Sign in'}
-          </Button>
-        </form>
-        <p className="mt-6 text-xs text-muted-foreground">
-          Need an account or a password reset? Contact your administrator.
+            <form onSubmit={login} className="mt-7">
+              <fieldset disabled={busy} className="space-y-5">
+                <Field>
+                  <FieldLabel htmlFor="phone">Phone number</FieldLabel>
+                  <div className="relative">
+                    <Phone
+                      className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <Input
+                      id="phone"
+                      className="form-input pl-11"
+                      type="tel"
+                      autoComplete="username"
+                      placeholder="923001234567"
+                      required
+                      value={phone}
+                      onChange={(event) => {
+                        setPhone(event.target.value);
+                        setForce(false);
+                      }}
+                    />
+                  </div>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="password">Password</FieldLabel>
+                  <div className="relative">
+                    <LockKeyhole
+                      className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <Input
+                      id="password"
+                      className="form-input pl-11"
+                      type="password"
+                      autoComplete="current-password"
+                      required
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                    />
+                  </div>
+                </Field>
+                {error && (
+                  <Alert variant="destructive" className="p-3">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+                <Button
+                  type="submit"
+                  className="h-12 w-full gap-2 rounded-xl px-4 whitespace-normal"
+                >
+                  {busy ? (
+                    <LoaderCircle className="animate-spin" aria-hidden="true" />
+                  ) : null}
+                  {busy
+                    ? 'Signing in…'
+                    : force
+                      ? 'Sign in and end other session'
+                      : 'Sign in'}
+                  {!busy && <ArrowRight aria-hidden="true" />}
+                </Button>
+              </fieldset>
+            </form>
+          </CardContent>
+        </Card>
+        <p className="px-3 text-center text-sm leading-relaxed text-muted-foreground">
+          Use the credentials provided by your administrator. Contact them if
+          you need an account or a password reset.
         </p>
-      </section>
+      </div>
     </main>
   );
 }

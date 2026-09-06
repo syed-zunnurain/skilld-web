@@ -33,7 +33,9 @@
 }
 
 :root {
-  --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-system:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
   --background: #f7f8fa;
   --foreground: #111827;
   --card: #ffffff;
@@ -105,90 +107,12 @@
   }
 }
 
-.brand-panel {
-  background:
-    radial-gradient(circle at 18% 16%, rgb(20 184 166 / 24%), transparent 30%),
-    radial-gradient(circle at 82% 84%, rgb(245 158 11 / 14%), transparent 34%),
-    #052f2d;
-}
-
-.brand-panel img {
-  filter: brightness(0) invert(1);
-}
-
-.role-card {
-  border-width: 1.5px;
-  box-shadow: 0 2px 8px rgb(17 24 39 / 3%);
-}
-
-.role-card:hover {
-  border-color: #b8cfcc;
-  transform: translateY(-1px);
-}
-
-.role-card:focus-visible,
-.role-card:has(input:focus-visible) {
-  outline: 3px solid rgb(20 184 166 / 25%);
-  outline-offset: 2px;
-}
-
-.role-card-active {
-  border-color: var(--primary);
-  background: linear-gradient(135deg, #ffffff, #f4fbfa);
-  box-shadow: 0 8px 28px rgb(15 118 110 / 10%);
-}
-
-.selection-dot {
-  display: grid;
-  width: 20px;
-  height: 20px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1.5px solid #d1d5db;
-  border-radius: 999px;
-}
-
-.role-card-active .selection-dot {
-  border-color: var(--primary);
-  background: var(--primary);
-}
-
 .form-input {
   height: 52px;
   border-width: 1.5px;
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--card);
   font-size: 16px;
-}
-
-.flow-enter {
-  animation: flow-enter 220ms ease-out both;
-}
-
-@keyframes flow-enter {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@media (max-width: 1023px) {
-  body {
-    background:
-      linear-gradient(180deg, #e6f7f5 0, #f7f8fa 190px),
-      #f7f8fa;
-  }
-}
-
-@media (max-width: 639px) {
-  [data-slot='input-otp-group'] {
-    gap: 6px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

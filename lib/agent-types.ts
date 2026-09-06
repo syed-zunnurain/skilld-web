@@ -35,7 +35,7 @@ export interface AgentProfile {
 
 export interface Referral {
   id: number;
-  name: string;
+  name: string | null;
   phone: string;
   registered_at: string;
   provider_status: string;
@@ -43,20 +43,22 @@ export interface Referral {
   approved_at: string | null;
   reward_status: 'pending' | 'paid' | 'skipped';
   reward_amount: string | null;
+  skip_reason: 'rewards_disabled' | 'agent_inactive' | null;
 }
 
 export interface WalletTransaction {
   id: string;
   direction: 'credit' | 'debit';
   amount: string;
+  currency: string;
   description: string;
   balance_after: string;
   created_at: string;
 }
 
-export function money(amount: string) {
+export function money(amount: string, currency = 'PKR') {
   const [whole, fraction = '00'] = amount.split('.');
-  return `PKR ${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${fraction.padEnd(2, '0')}`;
+  return `${currency} ${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${fraction.padEnd(2, '0')}`;
 }
 
 export function date(value: string | null) {
